@@ -107,7 +107,77 @@ describe('drift_vault', () => {
 		await clearingHouse.unsubscribe();
 	});
 
-  it('does something', async () => {
+  it('initializes the vault', async () => {
+    // derive pool mint PDA 
+    let [pool_mint, pool_mint_b] = await web3.PublicKey.findProgramAddress(
+      [Buffer.from("vault_mint")], 
+      vault_program.programId,
+    );
+    let [authority, authority_b] = await web3.PublicKey.findProgramAddress(
+      [Buffer.from("authority")], 
+      vault_program.programId,
+    );
+    let [user_positions, user_positions_b] = await web3.PublicKey.findProgramAddress(
+      [Buffer.from("user_positions")], 
+      vault_program.programId,
+    );
+
+    let clearingHouseState = await clearingHouse.getStatePublicKey(); 
+
+    // account for authority 
+    const [user_account, user_account_b] = 
+      await drift.getUserAccountPublicKeyAndNonce(
+        CH_program.programId,
+        authority,
+      );
+
+    await vault_program.rpc.initializeVault(
+      user_account_b, 
+      authority_b,
+      user_positions_b,
+      {
+        accounts: {
+          payer: provider.wallet.publicKey, 
+
+          authority: authority, 
+          clearingHouseState: clearingHouseState,
+          clearingHouseUser: user_account,
+          clearingHouseUserPositions: user_positions,
+
+          poolMint: pool_mint, 
+          
+          clearingHouseProgram: CH_program.programId,
+          systemProgram: web3.SystemProgram.programId,
+          rent: web3.SYSVAR_RENT_PUBKEY,
+          tokenProgram: token.TOKEN_PROGRAM_ID,
+        }, 
+      }
+    )
+
+    // await vault_program.rpc.initializeVault( 
+    //   userAccountPublicKeyNonce, 
+    //   {
+    //     accounts: {
+    //       payer: provider.wallet.publicKey, 
+    //       poolMint: pool_mint, 
+          
+    //       authority: authority_kp.publicKey,
+    //       clearingHouseState: clearingHouseState,
+    //       clearingHouseUser: userAccountPublicKey,
+    //       clearingHouseUserPositions: userPositions.publicKey,
+          
+    //       clearingHouseProgram: CH_program.programId,
+    //       systemProgram: web3.SystemProgram.programId,
+    //       tokenProgram: token.TOKEN_PROGRAM_ID, 
+    //       rent: web3.SYSVAR_RENT_PUBKEY,
+    //   }, 
+    //   signers: [userPositions, authority_kp]
+    // })
+
+  });
+  return; 
+
+  it('does something drift', async () => {
       // call initialize_vault instruction with a payer 
       // user is already created 
       // create a new open-orders drift account 

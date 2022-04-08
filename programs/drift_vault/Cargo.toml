@@ -17,3 +17,6 @@ default = []
 
 [dependencies]
 anchor-lang = "0.19.0"
+anchor-spl = "0.19.0"
+bytemuck = { version = "1.4.0" }
+clearing-house = { path = "../../deps/protocol-v1/programs/clearing_house", features = ["cpi"] }

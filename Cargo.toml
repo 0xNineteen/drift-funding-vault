@@ -2,3 +2,6 @@
 members = [
     "programs/*"
 ]
+exclude = [
+	"deps/protocol-v1/programs/clearing_house"
+]
