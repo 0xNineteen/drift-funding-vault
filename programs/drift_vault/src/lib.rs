@@ -24,7 +24,8 @@ use clearing_house::state::{
     market::Markets,
     user::{User, UserPositions},
 };
-
+use clearing_house::math::casting::{cast, cast_to_i128};
+use clearing_house::error::ErrorCode;
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
@@ -154,6 +155,8 @@ pub mod drift_vault {
             collateral_vault: ctx.accounts.clearing_house_collateral_vault.to_account_info(), // CH 
             deposit_history: ctx.accounts.clearing_house_deposit_history.to_account_info(),// CH 
             funding_payment_history: ctx.accounts.clearing_house_funding_payment_history.to_account_info(), // CH 
+            
+            // other
             token_program: ctx.accounts.token_program.to_account_info(), // basic
         };
         let cpi_ctx = CpiContext::new_with_signer(
@@ -179,6 +182,26 @@ pub mod drift_vault {
     // compute funding_rate = mark - oracle 
     // if funding = good for longs => *open_long()
     // if funding = good for shorts => *open_short()
+    pub fn update_position(
+        ctx: Context<UpdatePosition>, 
+        market_index: u64,
+    ) -> ProgramResult {
+
+        let market = &ctx.accounts.clearing_house_markets.load()?
+            .markets[Markets::index_from_u64(market_index)];
+        let oracle_price_twap = market.amm.last_oracle_price_twap;
+        let mark_price_twap = market.amm.last_mark_price_twap;
+
+        // negative = shorts pay longs (should go long)
+        // positive = longs pay shorts (should go short)
+        let approx_funding = cast_to_i128(mark_price_twap)?
+            .checked_sub(oracle_price_twap)
+            .ok_or_else(math_error!())?;
+
+        msg!("(mark twap, oracle twap): {} {} approx funding: {}", mark_price_twap, oracle_price_twap, approx_funding);
+        
+        Ok(())
+    }
 
     // ** open_long/short 
     // compute current position 
@@ -187,6 +210,7 @@ pub mod drift_vault {
     // enough to open a new long ? { cpi:long/short }
 
 }
+
 
 
 #[derive(Accounts)]
@@ -242,7 +266,6 @@ pub struct InitializeVault<'info> {
     pub token_program: Program<'info, Token>,
     pub clearing_house_program: Program<'info, ClearingHouse>,
 }
-
 
 #[account]
 #[derive(Default)]
@@ -301,4 +324,21 @@ pub struct Deposit<'info> {
     // programs 
     pub clearing_house_program: Program<'info, ClearingHouse>,
     pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct UpdatePosition<'info> {
+    pub clearing_house_markets: AccountLoader<'info, Markets>,
+}
+
+// copy pasta from clearing house 
+#[macro_export]
+macro_rules! math_error {
+    () => {{
+        || {
+            let error_code = ErrorCode::MathError;
+            msg!("Error {} thrown at {}:{}", error_code, file!(), line!());
+            error_code
+        }
+    }};
 }

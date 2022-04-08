@@ -253,6 +253,65 @@ describe('drift_vault', () => {
     assert(userAccount_start.collateral.lt(userAccount.collateral))    
   })
 
+  async function modify_oracle_twap_update_funding(multiplicative) {
+    const solUsd = clearingHouse.getMarket(marketIndex).amm.oracle;
+    
+    // update current price 
+    var solUsdcData = await getFeedData(pyth_program, solUsd)
+    await setFeedPrice(pyth_program, solUsdcData.price * multiplicative, solUsd)
+
+    // get the program to update oracle twap 
+    await CH_program.rpc.updateFundingRate(
+      marketIndex,
+      {
+        accounts: {
+          state: clearingHouseStatePk,
+          markets: clearingHouseState.markets,
+          oracle: solUsd,
+          fundingRateHistory: clearingHouseState.fundingRateHistory
+        }
+      }
+    )
+  }
+
+  it("opens a long when mark < oracle", async () => {
+    // view current market conditions 
+    const solUsd = clearingHouse.getMarket(marketIndex).amm.oracle;
+    const pythClient = new drift.PythClient(connection)
+    var market = clearingHouse.getMarket(marketIndex);
+
+    // oracle moves up => shorts pay longs
+    await modify_oracle_twap_update_funding(1.02) 
+
+    // get oracle/mark price 
+    var solUsdcData = await getFeedData(pyth_program, solUsd)
+    var currentMarketPrice = drift.calculateMarkPrice(market);
+    console.log("sol usdc price (mark):", currentMarketPrice.toString()) 
+    console.log("sol usdc price (oracle):", solUsdcData.price) 
+    
+    // compute funding rate
+    var estimated_funding = await drift.calculateEstimatedFundingRate(
+      market, 
+      await pythClient.getOraclePriceData(solUsd),
+      new BN(1), 
+      "interpolated"
+    );
+    console.log("estimated funding:", estimated_funding.toString());
+
+    let ix = vault_program.instruction.updatePosition(
+      marketIndex,
+      {
+        accounts: {
+          clearingHouseMarkets: clearingHouseState.markets,
+        }
+      }
+    )
+    let tx = new web3.Transaction().add(ix);
+    let resp = await provider.simulate(tx)
+    console.log(resp)
+    
+  })
+
   return; 
 
   it('does something drift', async () => {
