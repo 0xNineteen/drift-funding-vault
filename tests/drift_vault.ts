@@ -49,7 +49,7 @@ describe('drift_vault', () => {
 
   // CH setup 
   let usdcMint: Keypair;
-	let userUSDCAccount;
+	let userUSDCAccount: Keypair;
 	const clearingHouse = Admin.from(
 		provider.connection,
 		provider.wallet,
@@ -109,10 +109,12 @@ describe('drift_vault', () => {
 
   let vault_mint, vault_mint_b;
   let vault_state, vault_state_b;
+  let vault_collateral, vault_collateral_b;
   let authority, authority_b;
   let user_positions, user_positions_b;
   let user_account, user_account_b;
-  let clearingHouseState
+  let clearingHouseStatePk;
+  let clearingHouseState;
 
   it('initializes the vault', async () => {
     // derive pool mint PDA 
@@ -122,6 +124,10 @@ describe('drift_vault', () => {
     );
     [vault_state, vault_state_b] = await web3.PublicKey.findProgramAddress(
       [Buffer.from("vault_state")], 
+      vault_program.programId,
+    );
+    [vault_collateral, vault_collateral_b] = await web3.PublicKey.findProgramAddress(
+      [Buffer.from("vault_collateral")], 
       vault_program.programId,
     );
     [authority, authority_b] = await web3.PublicKey.findProgramAddress(
@@ -138,7 +144,8 @@ describe('drift_vault', () => {
       CH_program.programId,
       authority,
     );
-    clearingHouseState = await clearingHouse.getStatePublicKey(); 
+    clearingHouseStatePk = await clearingHouse.getStatePublicKey(); 
+    clearingHouseState = clearingHouse.getStateAccount();
 
     await vault_program.rpc.initializeVault(
       user_account_b, 
@@ -149,12 +156,15 @@ describe('drift_vault', () => {
           payer: provider.wallet.publicKey, 
 
           authority: authority, 
-          clearingHouseState: clearingHouseState,
+          clearingHouseState: clearingHouseStatePk,
           clearingHouseUser: user_account,
           clearingHouseUserPositions: user_positions,
 
           vaultMint: vault_mint, 
           vaultState: vault_state, 
+
+          vaultCollateral: vault_collateral,
+          collateralMint: usdcMint.publicKey, 
           
           clearingHouseProgram: CH_program.programId,
           systemProgram: web3.SystemProgram.programId,
@@ -176,7 +186,7 @@ describe('drift_vault', () => {
     const depositAmount = new BN(_depositAmount * 10 ** 6);
 
     // create ata of vault mint 
-    let vault_ata = await token.Token.getAssociatedTokenAddress(
+    let user_vault_ata = await token.Token.getAssociatedTokenAddress(
       token.ASSOCIATED_TOKEN_PROGRAM_ID, 
       token.TOKEN_PROGRAM_ID, 
       vault_mint, 
@@ -187,7 +197,7 @@ describe('drift_vault', () => {
       token.ASSOCIATED_TOKEN_PROGRAM_ID, 
       token.TOKEN_PROGRAM_ID, 
       vault_mint, 
-      vault_ata, 
+      user_vault_ata, 
       provider.wallet.publicKey,
       provider.wallet.publicKey,
     );
@@ -195,25 +205,52 @@ describe('drift_vault', () => {
     // deposit USDC in there lfg
     let deposit_ix = await vault_program.instruction.deposit(
       depositAmount,
-      vault_mint_b,
+      authority_b,
       {
         accounts: {
+          owner: provider.wallet.publicKey, 
+          userVaultAta: user_vault_ata, 
+          userCollateralAta: userUSDCAccount.publicKey,
+          vaultCollateralAta: vault_collateral,
+
           vaultMint: vault_mint, 
           vaultState: vault_state, 
+          
+          authority: authority, 
+          clearingHouseUserPositions: user_positions,
+          clearingHouseUser: user_account,
+          
+          clearingHouseState: clearingHouseStatePk,
+          clearingHouseCollateralVault: clearingHouseState.collateralVault,
+          clearingHouseMarkets: clearingHouseState.markets,
+          clearingHouseFundingPaymentHistory: clearingHouseState.fundingPaymentHistory,
+          clearingHouseDepositHistory: clearingHouseState.depositHistory,
 
-          owner: provider.wallet.publicKey, 
-          userVaultAta: vault_ata, 
+          clearingHouseProgram: CH_program.programId,
           tokenProgram: token.TOKEN_PROGRAM_ID,
         }
       }
     )
 
     let tx = new web3.Transaction().add(...[ata_ix, deposit_ix])
+
+    var user_colleteral_balance_start = await get_token_balance(userUSDCAccount.publicKey);
+    let userAccount_start = await CH_program.account.user.fetch(user_account);
+
     await provider.send(tx);
 
-    var vault_balance = await get_token_balance(vault_ata)
-    assert(vault_balance.gt(drift.ZERO))
+    // more vault mints 
+    var user_vault_balance = await get_token_balance(user_vault_ata)
+    assert(user_vault_balance.gt(drift.ZERO))
 
+    // user less USDC 
+    var user_colleteral_balance_end = await get_token_balance(userUSDCAccount.publicKey);
+    assert(user_colleteral_balance_start.gt(user_colleteral_balance_end))
+
+    // vault more USDC
+    let userAccount = await CH_program.account.user.fetch(user_account);
+    assert(userAccount.collateral.eq(depositAmount))    
+    assert(userAccount_start.collateral.lt(userAccount.collateral))    
   })
 
   return; 
@@ -262,12 +299,12 @@ describe('drift_vault', () => {
       // user amount => collateral account for provider.wallet
       await CH_program.rpc.depositCollateral(depositAmount, {
         accounts: {
-          state: ch_state_pk,
           user: userAccountPublicKey, 
           userPositions: userPositions.publicKey,
           authority: provider.wallet.publicKey,
           userCollateralAccount: userUSDCAccount.publicKey, // ! 
           // CH things 
+          state: ch_state_pk,
           collateralVault: clearingHouseState.collateralVault,
           markets: clearingHouseState.markets,
           depositHistory: clearingHouseState.depositHistory,
