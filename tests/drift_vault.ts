@@ -107,29 +107,38 @@ describe('drift_vault', () => {
 		await clearingHouse.unsubscribe();
 	});
 
+  let vault_mint, vault_mint_b;
+  let vault_state, vault_state_b;
+  let authority, authority_b;
+  let user_positions, user_positions_b;
+  let user_account, user_account_b;
+  let clearingHouseState
+
   it('initializes the vault', async () => {
     // derive pool mint PDA 
-    let [pool_mint, pool_mint_b] = await web3.PublicKey.findProgramAddress(
+    [vault_mint, vault_mint_b] = await web3.PublicKey.findProgramAddress(
       [Buffer.from("vault_mint")], 
       vault_program.programId,
     );
-    let [authority, authority_b] = await web3.PublicKey.findProgramAddress(
+    [vault_state, vault_state_b] = await web3.PublicKey.findProgramAddress(
+      [Buffer.from("vault_state")], 
+      vault_program.programId,
+    );
+    [authority, authority_b] = await web3.PublicKey.findProgramAddress(
       [Buffer.from("authority")], 
       vault_program.programId,
     );
-    let [user_positions, user_positions_b] = await web3.PublicKey.findProgramAddress(
+    [user_positions, user_positions_b] = await web3.PublicKey.findProgramAddress(
       [Buffer.from("user_positions")], 
       vault_program.programId,
     );
 
-    let clearingHouseState = await clearingHouse.getStatePublicKey(); 
-
     // account for authority 
-    const [user_account, user_account_b] = 
-      await drift.getUserAccountPublicKeyAndNonce(
-        CH_program.programId,
-        authority,
-      );
+    [user_account, user_account_b] = await drift.getUserAccountPublicKeyAndNonce(
+      CH_program.programId,
+      authority,
+    );
+    clearingHouseState = await clearingHouse.getStatePublicKey(); 
 
     await vault_program.rpc.initializeVault(
       user_account_b, 
@@ -144,7 +153,8 @@ describe('drift_vault', () => {
           clearingHouseUser: user_account,
           clearingHouseUserPositions: user_positions,
 
-          poolMint: pool_mint, 
+          vaultMint: vault_mint, 
+          vaultState: vault_state, 
           
           clearingHouseProgram: CH_program.programId,
           systemProgram: web3.SystemProgram.programId,
@@ -153,28 +163,59 @@ describe('drift_vault', () => {
         }, 
       }
     )
-
-    // await vault_program.rpc.initializeVault( 
-    //   userAccountPublicKeyNonce, 
-    //   {
-    //     accounts: {
-    //       payer: provider.wallet.publicKey, 
-    //       poolMint: pool_mint, 
-          
-    //       authority: authority_kp.publicKey,
-    //       clearingHouseState: clearingHouseState,
-    //       clearingHouseUser: userAccountPublicKey,
-    //       clearingHouseUserPositions: userPositions.publicKey,
-          
-    //       clearingHouseProgram: CH_program.programId,
-    //       systemProgram: web3.SystemProgram.programId,
-    //       tokenProgram: token.TOKEN_PROGRAM_ID, 
-    //       rent: web3.SYSVAR_RENT_PUBKEY,
-    //   }, 
-    //   signers: [userPositions, authority_kp]
-    // })
-
   });
+
+  async function get_token_balance(token_ata: web3.PublicKey) {
+    var vault_balance = await connection.getTokenAccountBalance(token_ata);
+    return new BN(vault_balance.value.amount)
+  }
+
+  it('deposits into vault', async () => {
+
+    const _depositAmount = 1_000; 
+    const depositAmount = new BN(_depositAmount * 10 ** 6);
+
+    // create ata of vault mint 
+    let vault_ata = await token.Token.getAssociatedTokenAddress(
+      token.ASSOCIATED_TOKEN_PROGRAM_ID, 
+      token.TOKEN_PROGRAM_ID, 
+      vault_mint, 
+      provider.wallet.publicKey, 
+    );
+
+    let ata_ix = await token.Token.createAssociatedTokenAccountInstruction(
+      token.ASSOCIATED_TOKEN_PROGRAM_ID, 
+      token.TOKEN_PROGRAM_ID, 
+      vault_mint, 
+      vault_ata, 
+      provider.wallet.publicKey,
+      provider.wallet.publicKey,
+    );
+
+    // deposit USDC in there lfg
+    let deposit_ix = await vault_program.instruction.deposit(
+      depositAmount,
+      vault_mint_b,
+      {
+        accounts: {
+          vaultMint: vault_mint, 
+          vaultState: vault_state, 
+
+          owner: provider.wallet.publicKey, 
+          userVaultAta: vault_ata, 
+          tokenProgram: token.TOKEN_PROGRAM_ID,
+        }
+      }
+    )
+
+    let tx = new web3.Transaction().add(...[ata_ix, deposit_ix])
+    await provider.send(tx);
+
+    var vault_balance = await get_token_balance(vault_ata)
+    assert(vault_balance.gt(drift.ZERO))
+
+  })
+
   return; 
 
   it('does something drift', async () => {

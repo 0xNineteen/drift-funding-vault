@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{Mint, Token, TokenAccount},
+    token::{Mint, Token, TokenAccount, mint_to, MintTo},
 };
 
 use clearing_house::context::{
@@ -32,7 +32,7 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 pub mod drift_vault {
     use super::*;
     pub fn initialize_vault(
-        ctx: Context<InitializeUser>, 
+        ctx: Context<InitializeVault>, 
         user_nonce: u8, 
         authority_nonce: u8,
         user_positions_nonce: u8,
@@ -53,10 +53,12 @@ pub mod drift_vault {
 
         let cpi_program = ctx.accounts.clearing_house_program.to_account_info();
         let cpi_accounts = InitializeUserWithExplicitPayer {
+            
             state: ctx.accounts.clearing_house_state.to_account_info(), // CH
             user: ctx.accounts.clearing_house_user.to_account_info(), // PDA
             user_positions: ctx.accounts.clearing_house_user_positions.clone(), // KP 
             authority: ctx.accounts.authority.clone(), // KP 
+
             payer: ctx.accounts.payer.clone(), // KP 
             rent: ctx.accounts.rent.to_account_info(),
             system_program: ctx.accounts.system_program.to_account_info(),
@@ -83,6 +85,43 @@ pub mod drift_vault {
     // transfer user USDC => drift collateral   
     // mint pool tokens 
     // * update position ()
+    pub fn deposit(
+        ctx: Context<Deposit>, 
+        depsoit_amount: u64,
+        vault_mint_nonce: u8,
+    ) -> ProgramResult {
+        let vault_state = &mut ctx.accounts.vault_state;
+
+        // mint = same amount as USDC deposited
+        let mint_amount = depsoit_amount; 
+
+        // record deposit 
+        vault_state.total_amount_minted = 
+            vault_state.total_amount_minted
+            .checked_add(mint_amount)
+            .unwrap();
+        
+        // send mint to user 
+        let mint_seeds = [
+            b"vault_mint".as_ref(),
+            &[vault_mint_nonce][..],
+        ];
+        let signers = &[&mint_seeds[..]];
+        let mint_ctx = CpiContext::new(
+            ctx.accounts.token_program.to_account_info(), 
+            MintTo {
+                to: ctx.accounts.user_vault_ata.to_account_info(),
+                mint: ctx.accounts.vault_mint.to_account_info(),
+                authority: ctx.accounts.vault_mint.to_account_info(),
+            }
+        );
+        mint_to(
+            mint_ctx.with_signer(signers), 
+            mint_amount
+        )?;
+
+        Ok(())
+    }
 
     // ** widthdraw 
     // burn user pool_tokens 
@@ -107,9 +146,8 @@ pub mod drift_vault {
 }
 
 
-
 #[derive(Accounts)]
-pub struct InitializeUser<'info> {
+pub struct InitializeVault<'info> {
     #[account(mut, signer)]
     pub payer: AccountInfo<'info>,
 
@@ -129,46 +167,50 @@ pub struct InitializeUser<'info> {
         seeds = [b"vault_mint".as_ref()], 
         bump, 
         mint::decimals = 9,
-        mint::authority = pool_mint
+        mint::authority = vault_mint
     )] 
-    pub pool_mint: Account<'info, Mint>,
-    pub token_program: Program<'info, Token>,
-
+    pub vault_mint: Account<'info, Mint>,
+    #[account(
+        init, 
+        payer = payer,
+        seeds = [b"vault_state".as_ref()], 
+        bump, 
+    )] 
+    pub vault_state: Account<'info, VaultState>,
+    
     // system stuff 
     pub rent: Sysvar<'info, Rent>,
     pub system_program: Program<'info, System>,
+    pub token_program: Program<'info, Token>,
     pub clearing_house_program: Program<'info, ClearingHouse>,
 }
 
 
-// #[derive(Accounts)]
-// pub struct InitializeVault<'info> {
-//     #[account(mut)]
-//     pub payer: Signer<'info>, 
-//     // #[account(mut, seeds=[b"authority"], bump)] 
-//     pub authority: Signer<'info>,
+#[account]
+#[derive(Default)]
+pub struct VaultState {
+    pub total_amount_minted: u64, 
+}
 
-//     // clearing house stuff 
-//     pub clearing_house_state: AccountInfo<'info>,
-//     #[account(mut)]
-//     pub clearing_house_user: AccountInfo<'info>, // will be initialized by CPI?
-//     #[account(mut)]
-//     pub clearing_house_user_positions: Signer<'info>, // new KP? how to make PDA?
-//     pub clearing_house_program: Program<'info, ClearingHouse>,
+#[derive(Accounts)]
+pub struct Deposit<'info> {
+    #[account(
+        mut,
+        seeds = [b"vault_mint".as_ref()], 
+        bump, 
+    )] 
+    pub vault_mint: Account<'info, Mint>,
+    #[account(
+        mut,
+        seeds = [b"vault_state".as_ref()], 
+        bump, 
+    )] 
+    pub vault_state: Account<'info, VaultState>,
+    
+    #[account(signer)]
+    pub owner: AccountInfo<'info>,
+    #[account(mut, has_one = owner, constraint = vault_mint.key().eq(&user_vault_ata.mint))]
+    pub user_vault_ata: Box<Account<'info, TokenAccount>>, 
 
-//     // pool mint for LPs 
-//     #[account(
-//         init, 
-//         payer=payer,
-//         seeds=[b"vault_mint"], 
-//         bump, 
-//         mint::decimals = 9,
-//         mint::authority = pool_mint
-//     )] 
-//     pub pool_mint: Account<'info, Mint>,
-
-//     // system stuff 
-//     pub system_program: Program<'info, System>,
-//     pub token_program: Program<'info, Token>,
-//     pub rent: Sysvar<'info, Rent>,
-// }
+    pub token_program: Program<'info, Token>,
+}
