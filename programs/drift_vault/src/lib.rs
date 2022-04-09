@@ -39,13 +39,13 @@ pub mod drift_vault {
     }
 
     // ** widthdraw 
-    // compute relative collateral to burn_pool_tokens
-    // adjust position size:
+    // 1. compute relative collateral to burn_pool_tokens
+    // 2. adjust position size:
     //  compute new_collateral = collateral - withdraw_amount 
     //  reduce position so approx 1:1 collateral:liabilities after withdraw
-    // transfer from drift vault => vault ATA
-    // vault ATA => user ATA  
-    // burn user pool_tokens 
+    // 3. transfer from drift vault => vault ATA
+    // 4. vault ATA => user ATA  
+    // 5. burn user pool_tokens 
     pub fn withdraw(
         ctx: Context<Withdraw>, 
         burn_amount: u128,

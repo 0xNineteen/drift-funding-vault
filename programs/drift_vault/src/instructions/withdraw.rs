@@ -25,45 +25,44 @@ pub fn withdraw(
 ) -> ProgramResult {
     let update_position_accounts = &mut ctx.accounts.update_position;
 
-    // compute total amount of collateral 
-    let collateral_amount = update_position_accounts.user.collateral;
-    let liabilites_amount = update_position_accounts.compute_total_liabilities();
-    msg!("(collateral, liabilities) amount: {}, {}", collateral_amount, liabilites_amount);
-
+    // ensure user has enough to burn 
     let user_vault_balance = ctx.accounts.user_vault_ata.amount as u128; 
     require!(user_vault_balance >= burn_amount, VaultErrorCode::NotEnoughFunds);
 
+    // 1. compute relative collateral to burn_pool_tokens
+    // compute total amount of vault collateral 
+    let [collateral_amount, liabilites_amount, ..] = 
+        update_position_accounts.get_position_state(true);
+        
+    // compute collateral to give = (burn_amount / total_minted) * total_colateral
     let state = &mut ctx.accounts.vault_state; 
-    // collateral to give = (burn_amount / total_minted) * total_colateral
     let mut refund_collateral_amount = 
         burn_amount
             .checked_mul(collateral_amount).unwrap()
             .checked_div(state.total_amount_minted as u128).unwrap() as u64;
     msg!("estimated refund amount: {}", refund_collateral_amount);
     require!(refund_collateral_amount > 0, VaultErrorCode::WidthdrawAmountTooSmall);
-
+    
+    // 2. adjust position size:
+    // reduce position (want approx 1:1 collat:liabilities)
+    let new_collateral_amount = collateral_amount - refund_collateral_amount as u128;
+    let amount_to_reduce = liabilites_amount - new_collateral_amount; 
+    let vault_position = update_position_accounts.get_current_position(market_index);
+    msg!("vaults current position: {:?}", vault_position);
+    
+    // get signature
     let authority_seeds = [
         b"authority".as_ref(),
         &[authority_nonce][..],
     ];
     let signers = &[&authority_seeds[..]];
 
-    // reduce position (want approx 1:1 collat:liabilities)
-    let new_collateral_amount = collateral_amount - refund_collateral_amount as u128;
-    let amount_to_reduce = liabilites_amount - new_collateral_amount; 
-    let vault_position = update_position_accounts.get_current_position(market_index);
-    msg!("vaults current position: {:?}", vault_position);
-
     if vault_position != Position::None {
+        msg!("position reducing...");
+        
         let reduce_direction = match vault_position {
-            Position::Long => {
-                msg!("position reducing: {:?} {:?}", Position::Short, amount_to_reduce);
-                ClearingHousePositionDirection::Short
-            },
-            Position::Short => {
-                msg!("position reducing: {:?} {:?}", Position::Long, amount_to_reduce);
-                ClearingHousePositionDirection::Long
-            },
+            Position::Long => ClearingHousePositionDirection::Short,
+            Position::Short => ClearingHousePositionDirection::Long,
             _ => panic!("shouldnt be called...")
         };
     
@@ -75,13 +74,13 @@ pub fn withdraw(
             market_index,
         )?;
 
-        // compute total amount of collateral 
+        // re-compute total amount of collateral after reduced position 
+        // (collateral estimate isnt perfect bc slippage + fees)
         update_position_accounts.user.reload()?;
-        let collateral_amount = update_position_accounts.user.collateral;
-        let liabilites_amount = update_position_accounts.compute_total_liabilities();
-        msg!("(collateral, liabilities) amount: {}, {}", collateral_amount, liabilites_amount);        
+        let [collateral_amount, ..] = 
+            update_position_accounts.get_position_state(true);
 
-        // re-compute refund amount after close (collateral estimate isnt perfect bc slippage + fees)
+        // re-compute refund amount after close 
         refund_collateral_amount = 
             burn_amount
             .checked_mul(collateral_amount).unwrap()
@@ -90,8 +89,7 @@ pub fn withdraw(
         require!(refund_collateral_amount > 0, VaultErrorCode::WidthdrawAmountTooSmall);
     }
 
-    // withdraw + transfer to user 
-    // (1) drift => vault collateral
+    // 3. transfer from drift vault => vault ATA
     let cpi_program = update_position_accounts.clearing_house_program.to_account_info();
     let cpi_accounts = ClearingHouseWithdrawCollateral {
         // user stuff 
@@ -121,14 +119,7 @@ pub fn withdraw(
     );
     clearing_house::cpi::withdraw_collateral(cpi_ctx, refund_collateral_amount)?;
 
-    // sanity check (make sure we got the correct output)
-    let balance_before = ctx.accounts.vault_collateral_ata.amount;
-    ctx.accounts.vault_collateral_ata.reload()?; // update underlying 
-    let balance_after = ctx.accounts.vault_collateral_ata.amount;
-    require!(balance_after - balance_before == refund_collateral_amount, 
-        VaultErrorCode::WidthdrawAmountTooSmall); 
-
-    // (2) vault collateral => user ata 
+    // 4. vault ATA => user ATA  
     transfer(CpiContext::new(
         ctx.accounts.token_program.to_account_info(),
         Transfer {
@@ -138,7 +129,7 @@ pub fn withdraw(
         }
     ).with_signer(signers), refund_collateral_amount)?;
 
-    // burn pool tokens 
+    // 5. burn user pool_tokens 
     burn(CpiContext::new(
         ctx.accounts.token_program.to_account_info(), 
     Burn { 
