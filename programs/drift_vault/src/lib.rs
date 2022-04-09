@@ -345,6 +345,11 @@ pub mod drift_vault {
     
             msg!("(mark twap, oracle twap): {} {} approx funding: {}", mark_price_twap, oracle_price_twap, approx_funding);
         }
+
+        if approx_funding == 0 { 
+            msg!("funding = 0, not doing anything...");
+            return Ok(());
+        }
         
         // get current position (LONG, SHORT, or NONE)
         let vault_position = ctx.accounts.get_current_position(market_index);

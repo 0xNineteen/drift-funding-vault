@@ -35,6 +35,70 @@ const clearingHousePublicKey = new PublicKey(
 const pythPublicKey = new PublicKey(
   '6bgJrRngVsFzCFkjd5PkVKMtb1C3JXgYnEFLhkJPtnEp'
 );
+const error_codes = [
+    "Clearing house not collateral account owner",
+    "Clearing house not insurance account owner",
+    "Insufficient deposit",
+    "Insufficient collateral",
+    "Sufficient collateral",
+    "Max number of positions taken",
+    "Admin Controls Prices Disabled",
+    "Market Index Not Initialized",
+    "Market Index Already Initialized",
+    "User Account And User Positions Account Mismatch",
+    "User Has No Position In Market",
+    "Invalid Initial Peg",
+    "AMM repeg already configured with amt given",
+    "AMM repeg incorrect repeg direction",
+    "AMM repeg out of bounds pnl",
+    "Slippage Outside Limit Price",
+    "Trade Size Too Small",
+    "Price change too large when updating K",
+    "Admin tried to withdraw amount larger than fees collected",
+    "Math Error",
+    "Conversion to u128/u64 failed with an overflow or underflow",
+    "Clock unavailable",
+    "Unable To Load Oracles",
+    "Oracle/Mark Spread Too Large",
+    "Clearing House history already initialized",
+    "Exchange is paused",
+    "Invalid whitelist token",
+    "Whitelist token not found",
+    "Invalid discount token",
+    "Discount token not found",
+    "Invalid referrer",
+    "Referrer not found",
+    "InvalidOracle",
+    "OracleNotFound",
+    "Liquidations Blocked By Oracle",
+    "Can not deposit more than max deposit",
+    "Can not delete user that still has collateral",
+    "AMM funding out of bounds pnl",
+    "Casting Failure",
+    "Invalid Order",
+    "User has no order",
+    "Order Amount Too Small",
+    "Max number of orders taken",
+    "Order does not exist",
+    "Order not open",
+    "CouldNotFillOrder",
+    "Reduce only order increased risk",
+    "Order state already initialized",
+    "Unable to load AccountLoader",
+    "Trade Size Too Large",
+    "Unable to write to remaining account",
+    "User cant refer themselves",
+    "Did not receive expected referrer",
+    "Could not deserialize referrer",
+    "Market order must be in place and fill",
+    "User Order Id Already In Use",
+    "No positions liquidatable",
+    "Invalid Margin Ratio",
+    "Cant Cancel Post Only Order",
+    "InvalidOracleOffset",
+    "CantExpireOrders",
+    "AMM repeg mark price impact vs oracle too large",
+]
 
 describe('drift_vault', () => {
 
@@ -297,7 +361,7 @@ describe('drift_vault', () => {
     await setFeedPrice(pyth_program, new_oracle_price, solUsd)
 
     var currentMarketPrice = drift.calculateMarkPrice(market);
-    let new_mark_price = currentMarketPrice.mul(new BN(mark_increase));
+    let new_mark_price = new BN(currentMarketPrice.toNumber() * mark_increase);
     
     // hacky hacky hack hack 
     await CH_program.rpc.updateTwaps(
@@ -320,7 +384,7 @@ describe('drift_vault', () => {
     const solUsd = market.amm.oracle;
 
     // oracle moves up => oracle > mark => shorts pay longs
-    await update_twaps(1.02, 1); 
+    await update_twaps(1.01, 1); 
 
     // view_market_state()
 
@@ -364,7 +428,7 @@ describe('drift_vault', () => {
     const solUsd = market.amm.oracle;
 
     // mark > oracle => longs pays shorts 
-    await update_twaps(1.0, 1.04); 
+    await update_twaps(1.0, 1.02); 
 
     // view_market_state()
 
@@ -389,7 +453,7 @@ describe('drift_vault', () => {
     )
 
     let tx = new web3.Transaction().add(ix);
-    
+
     // let resp = await provider.simulate(tx);
     // console.log(resp)
 
@@ -415,7 +479,7 @@ describe('drift_vault', () => {
     let burn_amount = user_vault_balance; 
 
     let ix = vault_program.instruction.withdraw(
-      burn_amount, //.div(new BN(100)), // 1% widthdraw 
+      burn_amount, // 1% widthdraw 
       marketIndex, 
       authority_b,
       {
@@ -462,6 +526,157 @@ describe('drift_vault', () => {
 
     var user_vault_balance_end = await get_token_balance(user_vault_ata)
     assert(user_vault_balance_end.eq(user_vault_balance.sub(burn_amount))); // less vault tokens 
+
+  })
+
+  it('re-deposits in the vault, goes long, captures funding, closes for profit', async () => {
+
+    const market = clearingHouse.getMarket(marketIndex); 
+    const solUsd = market.amm.oracle;
+    
+    // reset bc errors otherwise?? 
+    // await clearingHouse.updateAmmOracleTwap(marketIndex);
+
+    // set funding for longs 
+    await update_twaps(1.03, 1.0); 
+
+    // let twap relax 
+    for (let i=0; i < 4; i++) {
+      await clearingHouse.updateFundingRate(solUsd, marketIndex);
+      await new Promise(r => setTimeout(r, 2000)); // wait 2 seconds
+    }
+    // await view_market_state()
+    
+    const user_usdc_balance = await get_token_balance(userUSDCAccount.publicKey)
+    const deposit_amount = user_usdc_balance.div(new BN(100)); // 1% position
+
+    // deposit USDC in there lfg
+    var ix = vault_program.instruction.deposit(
+      deposit_amount,
+      authority_b,
+      {
+        accounts: {
+          owner: provider.wallet.publicKey, 
+          userVaultAta: user_vault_ata, 
+          userCollateralAta: userUSDCAccount.publicKey,
+          vaultCollateralAta: vault_collateral,
+
+          vaultMint: vault_mint, 
+          vaultState: vault_state, 
+          
+          authority: authority, 
+          clearingHouseUserPositions: user_positions,
+          clearingHouseUser: user_account,
+          
+          clearingHouseState: clearingHouseStatePk,
+          clearingHouseCollateralVault: clearingHouseState.collateralVault,
+          clearingHouseMarkets: clearingHouseState.markets,
+          clearingHouseFundingPaymentHistory: clearingHouseState.fundingPaymentHistory,
+          clearingHouseDepositHistory: clearingHouseState.depositHistory,
+
+          clearingHouseProgram: CH_program.programId,
+          tokenProgram: token.TOKEN_PROGRAM_ID,
+        }
+      }
+    )
+    var tx = new web3.Transaction().add(ix);
+    
+    // var resp = await provider.simulate(tx);
+    // console.log(resp)
+
+    await provider.send(tx);
+
+    // get long mfer
+    var ix = vault_program.instruction.updatePosition(
+      marketIndex,
+      authority_b,
+      {
+        accounts: {
+          authority: authority, 
+          userPositions: user_positions,
+          
+          state: clearingHouseStatePk,
+          user: user_account,
+          markets: clearingHouseState.markets,
+          tradeHistory: clearingHouseState.tradeHistory,
+          fundingPaymentHistory: clearingHouseState.fundingPaymentHistory,
+          fundingRateHistory: clearingHouseState.fundingRateHistory,
+          oracle: solUsd,
+          clearingHouseProgram: CH_program.programId,
+        }
+      }
+    )
+    var tx = new web3.Transaction().add(ix);
+    
+    // var resp = await provider.simulate(tx);
+    // console.log(resp)
+
+    // var logs = resp.value.logs; 
+    // logs.every(log => {
+    //   let idx = log.indexOf("failed: custom program error:")
+    //   if (idx > 0) {
+    //     log = log.split("failed: custom program error:")[1];
+    //   } else { 
+    //     return true;
+    //   }
+    //   let error_code_idx = parseInt(log) - 6000;
+    //   let error = error_codes[error_code_idx];
+    //   console.log("Parsed Error:", error)
+    //   return false;
+    // });
+
+    await provider.send(tx);
+
+    // wait for the funding 
+    await new Promise(r => setTimeout(r, 2000)); 
+    await clearingHouse.updateFundingRate(solUsd, marketIndex);
+
+    // withdraw for profit 
+    var ix = vault_program.instruction.withdraw(
+      deposit_amount, // 1% widthdraw 
+      marketIndex, 
+      authority_b,
+      {
+        accounts: {
+          owner: provider.wallet.publicKey, 
+          userVaultAta: user_vault_ata, 
+          userCollateralAta: userUSDCAccount.publicKey,
+          vaultCollateralAta: vault_collateral,
+          
+          vaultMint: vault_mint, 
+          vaultState: vault_state, 
+          
+          collateralVault: clearingHouseState.collateralVault,
+          collateralVaultAuthority: clearingHouseState.collateralVaultAuthority,
+          depositHistory: clearingHouseState.depositHistory,
+          insuranceVault: clearingHouseState.insuranceVault,
+          insuranceVaultAuthority: clearingHouseState.insuranceVaultAuthority,
+          tokenProgram: token.TOKEN_PROGRAM_ID,
+          updatePosition: {
+            authority: authority, 
+            userPositions: user_positions,
+            state: clearingHouseStatePk,
+            user: user_account,
+            markets: clearingHouseState.markets,
+            tradeHistory: clearingHouseState.tradeHistory,
+            fundingPaymentHistory: clearingHouseState.fundingPaymentHistory,
+            fundingRateHistory: clearingHouseState.fundingRateHistory,
+            oracle: solUsd,
+            clearingHouseProgram: CH_program.programId,
+          },
+        }
+      }
+    ); 
+    var tx = new web3.Transaction().add(ix);
+    
+    // var resp = await provider.simulate(tx);
+    // console.log(resp)   
+    
+    await provider.send(tx);
+
+    // check for profit 
+    const user_usdc_balance_end = await get_token_balance(userUSDCAccount.publicKey)    
+    assert(user_usdc_balance_end.gt(user_usdc_balance))
 
   })
 });
