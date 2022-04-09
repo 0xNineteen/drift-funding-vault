@@ -246,7 +246,7 @@ pub mod drift_vault {
         
         // compute total collateral
         // amount_to_trade = collateral - liabilities > 0 
-
+        // TODO: macro this bad boy probs
         let collateral_amount = ctx.accounts.user.collateral;
         let liabilites_amount = ctx.accounts.compute_total_liabilies();
         msg!("(collateral, liabilities) amount: {}, {}", collateral_amount, liabilites_amount);
@@ -334,12 +334,6 @@ pub mod drift_vault {
 
         Ok(())
     }
-
-    // ** open_long/short 
-    // compute current position 
-    // compute current amount of collateral:position
-    // var = amount of leverage 
-    // enough to open a new long ? { cpi:long/short }
 
 }
 

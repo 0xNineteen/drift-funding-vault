@@ -265,6 +265,27 @@ describe('drift_vault', () => {
     assert(userAccount_start.collateral.lt(userAccount.collateral))    
   })
 
+  async function view_market_state() {
+    const pythClient = new drift.PythClient(connection)
+    const market = clearingHouse.getMarket(marketIndex); 
+    const solUsd = market.amm.oracle;
+
+    // current mark + oracle price 
+    var solUsdcData = await getFeedData(pyth_program, solUsd)
+    var currentMarketPrice = drift.calculateMarkPrice(market);
+    console.log("sol usdc price (mark):", currentMarketPrice.toString()) 
+    console.log("sol usdc price (oracle):", solUsdcData.price) 
+    
+    // funding rate
+    var estimated_funding = await drift.calculateEstimatedFundingRate(
+      market, 
+      await pythClient.getOraclePriceData(solUsd),
+      new BN(1), 
+      "interpolated"
+    );
+    console.log("estimated funding:", estimated_funding.toString());
+  }
+
   async function update_twaps(oracle_increase, mark_increase) {
     const market = clearingHouse.getMarket(marketIndex); 
     const solUsd = market.amm.oracle;
@@ -294,29 +315,13 @@ describe('drift_vault', () => {
   }
 
   it("opens a long when mark < oracle", async () => {
-
-    // view current market conditions 
-    const solUsd = clearingHouse.getMarket(marketIndex).amm.oracle;
-    const pythClient = new drift.PythClient(connection)
-    var market = clearingHouse.getMarket(marketIndex);
+    const market = clearingHouse.getMarket(marketIndex); 
+    const solUsd = market.amm.oracle;
 
     // oracle moves up => oracle > mark => shorts pay longs
     await update_twaps(1.02, 1); 
 
-    // get oracle/mark price 
-    var solUsdcData = await getFeedData(pyth_program, solUsd)
-    var currentMarketPrice = drift.calculateMarkPrice(market);
-    console.log("sol usdc price (mark):", currentMarketPrice.toString()) 
-    console.log("sol usdc price (oracle):", solUsdcData.price) 
-    
-    // compute funding rate
-    var estimated_funding = await drift.calculateEstimatedFundingRate(
-      market, 
-      await pythClient.getOraclePriceData(solUsd),
-      new BN(1), 
-      "interpolated"
-    );
-    console.log("estimated funding:", estimated_funding.toString());
+    // view_market_state()
 
     let ix = vault_program.instruction.updatePosition(
       marketIndex,
@@ -345,35 +350,22 @@ describe('drift_vault', () => {
     await provider.send(tx)
 
     // assert is long 
-    let userAccount = await CH_program.account.user.fetch(user_account);
-    let position = userAccount.positions[0]; 
+    let userAccount = await CH_program.account.user.fetch(user_account); 
+    let positions = await CH_program.account.userPositions.fetch(
+      userAccount.positions as web3.PublicKey
+    );
+    let position = positions.positions[0];
     assert(position.baseAssetAmount.gt(drift.ZERO))    
   })
 
   it("closes long and goes short when mark > oracle", async () => {
-    
-    // view current market conditions 
-    const solUsd = clearingHouse.getMarket(marketIndex).amm.oracle;
-    const pythClient = new drift.PythClient(connection)
-    var market = clearingHouse.getMarket(marketIndex);
-        
+    const market = clearingHouse.getMarket(marketIndex); 
+    const solUsd = market.amm.oracle;
+
     // mark > oracle => longs pays shorts 
     await update_twaps(1.0, 1.04); 
 
-    // get oracle/mark price 
-    var solUsdcData = await getFeedData(pyth_program, solUsd)
-    var currentMarketPrice = drift.calculateMarkPrice(market);
-    console.log("sol usdc price (mark):", currentMarketPrice.toString()) 
-    console.log("sol usdc price (oracle):", solUsdcData.price) 
-    
-    // compute funding rate
-    var estimated_funding = await drift.calculateEstimatedFundingRate(
-      market, 
-      await pythClient.getOraclePriceData(solUsd),
-      new BN(1), 
-      "interpolated"
-    );
-    console.log("estimated funding:", estimated_funding.toString());
+    // view_market_state()
 
     let ix = vault_program.instruction.updatePosition(
       marketIndex,
@@ -403,9 +395,13 @@ describe('drift_vault', () => {
     await provider.send(tx)
 
     // assert is short
-    let userAccount = await CH_program.account.user.fetch(user_account);
-    let position = userAccount.positions[0]; 
+    let userAccount = await CH_program.account.user.fetch(user_account); 
+    let positions = await CH_program.account.userPositions.fetch(
+      userAccount.positions as web3.PublicKey
+    );
+    let position = positions.positions[0];
     assert(position.baseAssetAmount.lt(drift.ZERO))    
+
   })
 
   return; 
