@@ -93,6 +93,18 @@ describe('drift_vault', () => {
     // const periodicity = new BN(60 * 60); // 1 HOUR
 		const periodicity = new BN(1); // 1 SECOND
 
+    // fund the market collateral to pay for funding rates  
+    let clearingHouseState = clearingHouse.getStateAccount();
+    const fund_amm_ix = await token.Token.createMintToInstruction(
+      token.TOKEN_PROGRAM_ID,
+      usdcMint.publicKey,
+      clearingHouseState.collateralVault,
+      provider.wallet.publicKey,
+      [],
+      100_000 * 10 ** 6 
+    );
+    await provider.send(new web3.Transaction().add(fund_amm_ix))
+
 		await clearingHouse.initializeMarket(
 			marketIndex,
 			solUsd,
@@ -253,21 +265,28 @@ describe('drift_vault', () => {
     assert(userAccount_start.collateral.lt(userAccount.collateral))    
   })
 
-  async function modify_oracle_twap_update_funding(multiplicative) {
-    const solUsd = clearingHouse.getMarket(marketIndex).amm.oracle;
+  async function update_twaps(oracle_increase, mark_increase) {
+    const market = clearingHouse.getMarket(marketIndex); 
+    const solUsd = market.amm.oracle;
     
-    // update current price 
+    // update oracle  
     var solUsdcData = await getFeedData(pyth_program, solUsd)
-    await setFeedPrice(pyth_program, solUsdcData.price * multiplicative, solUsd)
+    let new_oracle_price = solUsdcData.price * oracle_increase; 
+    await setFeedPrice(pyth_program, new_oracle_price, solUsd)
 
-    // get the program to update oracle twap 
-    await CH_program.rpc.updateFundingRate(
-      marketIndex,
+    var currentMarketPrice = drift.calculateMarkPrice(market);
+    let new_mark_price = currentMarketPrice.mul(new BN(mark_increase));
+    
+    // hacky hacky hack hack 
+    await CH_program.rpc.updateTwaps(
+      marketIndex, 
+      new_mark_price,
+      new BN(new_oracle_price * 10 ** 10), // mark percision? 
       {
         accounts: {
-          state: clearingHouseStatePk,
+          state: clearingHouseStatePk, 
           markets: clearingHouseState.markets,
-          oracle: solUsd,
+          oracle: solUsd, 
           fundingRateHistory: clearingHouseState.fundingRateHistory
         }
       }
@@ -275,13 +294,14 @@ describe('drift_vault', () => {
   }
 
   it("opens a long when mark < oracle", async () => {
+
     // view current market conditions 
     const solUsd = clearingHouse.getMarket(marketIndex).amm.oracle;
     const pythClient = new drift.PythClient(connection)
     var market = clearingHouse.getMarket(marketIndex);
 
-    // oracle moves up => shorts pay longs
-    await modify_oracle_twap_update_funding(1.02) 
+    // oracle moves up => oracle > mark => shorts pay longs
+    await update_twaps(1.02, 1); 
 
     // get oracle/mark price 
     var solUsdcData = await getFeedData(pyth_program, solUsd)
@@ -300,16 +320,92 @@ describe('drift_vault', () => {
 
     let ix = vault_program.instruction.updatePosition(
       marketIndex,
+      authority_b,
       {
         accounts: {
-          clearingHouseMarkets: clearingHouseState.markets,
+          authority: authority, 
+          userPositions: user_positions,
+          
+          state: clearingHouseStatePk,
+          user: user_account,
+          markets: clearingHouseState.markets,
+          tradeHistory: clearingHouseState.tradeHistory,
+          fundingPaymentHistory: clearingHouseState.fundingPaymentHistory,
+          fundingRateHistory: clearingHouseState.fundingRateHistory,
+          oracle: solUsd,
+          clearingHouseProgram: CH_program.programId,
         }
       }
     )
     let tx = new web3.Transaction().add(ix);
-    let resp = await provider.simulate(tx)
-    console.log(resp)
     
+    // let resp = await provider.simulate(tx)
+    // console.log(resp)
+
+    await provider.send(tx)
+
+    // assert is long 
+    let userAccount = await CH_program.account.user.fetch(user_account);
+    let position = userAccount.positions[0]; 
+    assert(position.baseAssetAmount.gt(drift.ZERO))    
+  })
+
+  it("closes long and goes short when mark > oracle", async () => {
+    
+    // view current market conditions 
+    const solUsd = clearingHouse.getMarket(marketIndex).amm.oracle;
+    const pythClient = new drift.PythClient(connection)
+    var market = clearingHouse.getMarket(marketIndex);
+        
+    // mark > oracle => longs pays shorts 
+    await update_twaps(1.0, 1.04); 
+
+    // get oracle/mark price 
+    var solUsdcData = await getFeedData(pyth_program, solUsd)
+    var currentMarketPrice = drift.calculateMarkPrice(market);
+    console.log("sol usdc price (mark):", currentMarketPrice.toString()) 
+    console.log("sol usdc price (oracle):", solUsdcData.price) 
+    
+    // compute funding rate
+    var estimated_funding = await drift.calculateEstimatedFundingRate(
+      market, 
+      await pythClient.getOraclePriceData(solUsd),
+      new BN(1), 
+      "interpolated"
+    );
+    console.log("estimated funding:", estimated_funding.toString());
+
+    let ix = vault_program.instruction.updatePosition(
+      marketIndex,
+      authority_b,
+      {
+        accounts: {
+          authority: authority, 
+          userPositions: user_positions,
+          
+          state: clearingHouseStatePk,
+          user: user_account,
+          markets: clearingHouseState.markets,
+          tradeHistory: clearingHouseState.tradeHistory,
+          fundingPaymentHistory: clearingHouseState.fundingPaymentHistory,
+          fundingRateHistory: clearingHouseState.fundingRateHistory,
+          oracle: solUsd,
+          clearingHouseProgram: CH_program.programId,
+        }
+      }
+    )
+
+    let tx = new web3.Transaction().add(ix);
+    
+    // let resp = await provider.simulate(tx);
+    // console.log(resp)
+
+    await provider.send(tx)
+
+    // assert is short
+    let userAccount = await CH_program.account.user.fetch(user_account);
+    let position = userAccount.positions[0]; 
+    assert(position.baseAssetAmount.lt(drift.ZERO))    
   })
 
   return; 
