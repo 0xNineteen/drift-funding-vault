@@ -27,7 +27,7 @@ pub fn withdraw(
 
     // compute total amount of collateral 
     let collateral_amount = update_position_accounts.user.collateral;
-    let liabilites_amount = update_position_accounts.compute_total_liabilies();
+    let liabilites_amount = update_position_accounts.compute_total_liabilities();
     msg!("(collateral, liabilities) amount: {}, {}", collateral_amount, liabilites_amount);
 
     let user_vault_balance = ctx.accounts.user_vault_ata.amount as u128; 
@@ -78,7 +78,7 @@ pub fn withdraw(
         // compute total amount of collateral 
         update_position_accounts.user.reload()?;
         let collateral_amount = update_position_accounts.user.collateral;
-        let liabilites_amount = update_position_accounts.compute_total_liabilies();
+        let liabilites_amount = update_position_accounts.compute_total_liabilities();
         msg!("(collateral, liabilities) amount: {}, {}", collateral_amount, liabilites_amount);        
 
         // re-compute refund amount after close (collateral estimate isnt perfect bc slippage + fees)

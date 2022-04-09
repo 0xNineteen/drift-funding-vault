@@ -23,10 +23,9 @@ pub fn initialize_vault(
     user_positions_nonce: u8,
 ) -> ProgramResult {
 
-    // create pool mint for LPs [done by anchor]
-    // create vault collateral ATA [done by anchor]
+    // 1. create pool mint for LPs [done by anchor]
+    // 2. create vault collateral ATA [done by anchor]
 
-    // create drift account 
     let authority_seeds = [
         b"authority".as_ref(),
         &[authority_nonce][..],
@@ -37,18 +36,18 @@ pub fn initialize_vault(
     ];
     let signers = &[&authority_seeds[..], &user_positions_seeds[..]];
 
+    // 3. create drift account 
     let cpi_program = ctx.accounts.clearing_house_program.to_account_info();
     let cpi_accounts = InitializeUserWithExplicitPayer {
-        state: ctx.accounts.clearing_house_state.to_account_info(), // CH
-        user: ctx.accounts.clearing_house_user.to_account_info(), // PDA
-        user_positions: ctx.accounts.clearing_house_user_positions.clone(), // KP 
-        authority: ctx.accounts.authority.clone(), // KP 
+        state: ctx.accounts.clearing_house_state.to_account_info(), 
+        user: ctx.accounts.clearing_house_user.to_account_info(), 
+        user_positions: ctx.accounts.clearing_house_user_positions.clone(), 
+        authority: ctx.accounts.authority.clone(), 
 
-        payer: ctx.accounts.payer.clone(), // KP 
+        payer: ctx.accounts.payer.clone(), 
         rent: ctx.accounts.rent.to_account_info(),
         system_program: ctx.accounts.system_program.to_account_info(),
     };
-
     let cpi_ctx = CpiContext::new_with_signer(
         cpi_program, 
         cpi_accounts,

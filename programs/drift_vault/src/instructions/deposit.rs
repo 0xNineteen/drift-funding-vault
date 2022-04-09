@@ -23,36 +23,34 @@ pub fn deposit(
 ) -> ProgramResult {
     let vault_state = &mut ctx.accounts.vault_state;
 
-    // mint = same amount as USDC deposited
+    // 1. mint pool tokens to user
+    // mint amount = same amount as USDC deposited
     let mint_amount = deposit_amount; 
 
-    // record deposit 
-    vault_state.total_amount_minted = 
-        vault_state.total_amount_minted
+    // record deposit in state 
+    vault_state.total_amount_minted = vault_state.total_amount_minted
         .checked_add(mint_amount)
         .unwrap();
     
-    // send mint to user 
-    let auth_seeds = [
+    let authority_seeds = [
         b"authority".as_ref(),
         &[authority_nonce][..],
     ];
-    let signers = &[&auth_seeds[..]];
-    let mint_ctx = CpiContext::new(
+    let signers = &[&authority_seeds[..]];
+    
+    // send mint to user 
+    mint_to(CpiContext::new(
         ctx.accounts.token_program.to_account_info(), 
         MintTo {
             to: ctx.accounts.user_vault_ata.to_account_info(),
             mint: ctx.accounts.vault_mint.to_account_info(),
             authority: ctx.accounts.authority.to_account_info(),
-        }
-    );
-    mint_to(
-        mint_ctx.with_signer(signers), 
+        }).with_signer(signers), 
         mint_amount
     )?;
 
-    // deposit usdc to vault's drift collateral 
-    // 2 step process bc of auth: 
+    // 2. deposit usdc to vault's drift collateral 
+    // two step process bc of auth: 
     // [depositer => {vault collateral] => drift account}
 
     // (1) depositer => vault collateral 
@@ -66,29 +64,23 @@ pub fn deposit(
     ), deposit_amount)?;
     
     // (2) vault collateral => drift 
-    let authority_seeds = [
-        b"authority".as_ref(),
-        &[authority_nonce][..],
-    ];
-    let signers = &[&authority_seeds[..]];
-
     let cpi_program = ctx.accounts.clearing_house_program.to_account_info();
     let cpi_accounts = ClearingHouseDepositCollateral {
         // user stuff 
-        user: ctx.accounts.clearing_house_user.to_account_info(), // PDA
+        user: ctx.accounts.clearing_house_user.to_account_info(), 
         user_collateral_account: ctx.accounts.vault_collateral_ata.to_account_info(), // [!]
-        user_positions: ctx.accounts.clearing_house_user_positions.to_account_info(),// KP
-        authority: ctx.accounts.authority.clone(), // KP 
+        user_positions: ctx.accounts.clearing_house_user_positions.to_account_info(),
+        authority: ctx.accounts.authority.clone(), 
 
         // drift stuff 
-        state: ctx.accounts.clearing_house_state.to_account_info(), // CH 
-        markets: ctx.accounts.clearing_house_markets.to_account_info(), // CH 
-        collateral_vault: ctx.accounts.clearing_house_collateral_vault.to_account_info(), // CH 
-        deposit_history: ctx.accounts.clearing_house_deposit_history.to_account_info(),// CH 
-        funding_payment_history: ctx.accounts.clearing_house_funding_payment_history.to_account_info(), // CH 
+        state: ctx.accounts.clearing_house_state.to_account_info(),
+        markets: ctx.accounts.clearing_house_markets.to_account_info(), 
+        collateral_vault: ctx.accounts.clearing_house_collateral_vault.to_account_info(), 
+        deposit_history: ctx.accounts.clearing_house_deposit_history.to_account_info(),
+        funding_payment_history: ctx.accounts.clearing_house_funding_payment_history.to_account_info(), 
         
         // other
-        token_program: ctx.accounts.token_program.to_account_info(), // basic
+        token_program: ctx.accounts.token_program.to_account_info(),
     };
     let cpi_ctx = CpiContext::new_with_signer(
         cpi_program, 
@@ -102,10 +94,11 @@ pub fn deposit(
 
 #[derive(Accounts)]
 pub struct Deposit<'info> {
+    // depositer / owner of ATAs 
     #[account(signer)]
-    pub owner: AccountInfo<'info>, // depositer / owner of ATAs 
+    pub owner: AccountInfo<'info>, 
 
-    // atas 
+    // ATAs 
         // vault 
     #[account(mut, constraint = &vault_collateral_ata.mint.eq(&clearing_house_state.collateral_mint))]
     pub vault_collateral_ata: Box<Account<'info, TokenAccount>>,  // transfer: this => assoc. drift collateral account
@@ -116,20 +109,12 @@ pub struct Deposit<'info> {
     pub user_vault_ata: Box<Account<'info, TokenAccount>>,  // mint to this 
     
     // vault stuff 
-    #[account(
-        mut,
-        seeds = [b"vault_mint".as_ref()], 
-        bump, 
-    )] 
+    #[account(mut, seeds = [b"vault_mint".as_ref()], bump)] 
     pub vault_mint: Account<'info, Mint>,
-    #[account(
-        mut,
-        seeds = [b"vault_state".as_ref()], 
-        bump, 
-    )] 
+    #[account(mut, seeds = [b"vault_state".as_ref()], bump)] 
     pub vault_state: Account<'info, VaultState>,
     
-    // vault drift stuff
+    // drift vault stuff
     #[account(mut, seeds = [b"authority".as_ref()], bump)]
     pub authority: AccountInfo<'info>,
     #[account(mut, seeds = [b"user_positions".as_ref()], bump)]
@@ -148,7 +133,7 @@ pub struct Deposit<'info> {
     #[account(mut)]
     pub clearing_house_deposit_history: AccountInfo<'info>,
 
-    // programs 
+    // other
     pub clearing_house_program: Program<'info, ClearingHouse>,
     pub token_program: Program<'info, Token>,
 }

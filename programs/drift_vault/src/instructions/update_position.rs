@@ -27,6 +27,7 @@ pub fn update_position(
     authority_nonce: u8,
 ) -> ProgramResult {
 
+    // 1. compute funding_rate = mark - oracle 
     let approx_funding;
     {
         let market = &ctx.accounts.markets.load()?
@@ -48,44 +49,33 @@ pub fn update_position(
         return Ok(());
     }
     
-    // get current position (LONG, SHORT, or NONE)
+    // print the state of the current position of vault before anything
+    ctx.accounts.get_position_state(true);
+        
+    // 2. do:
+    //  if funding = good for longs => *open_long()
+    //  if funding = good for shorts => *open_short()
+
+    // get current position 
     let vault_position = ctx.accounts.get_current_position(market_index);
     msg!("current position: {:?}", vault_position);
     
-    // get authority signature 
+    // get vault signature 
     let authority_seeds = [
         b"authority".as_ref(),
         &[authority_nonce][..],
     ];
     let signers = &[&authority_seeds[..]];
 
-    {
-        let collateral_amount = &ctx.accounts.user.collateral;
-        msg!("collateral amount: {}", collateral_amount);
-    }
-    
-    // compute total collateral
-    // amount_to_trade = collateral - liabilities > 0 
-    // TODO: macro this bad boy probs
-    let collateral_amount = ctx.accounts.user.collateral;
-    let liabilites_amount = ctx.accounts.compute_total_liabilies();
-    msg!("(collateral, liabilities) amount: {}, {}", collateral_amount, liabilites_amount);
-
-    let amount_to_trade = if liabilites_amount > collateral_amount { 
-        0 
-    } else {
-        collateral_amount - liabilites_amount
-    };
-    msg!("amount_to_trade: {}", amount_to_trade);
-
-    /* For now, if we need to reverse we use 2 steps (close, new_pos) but 
-        * in future we can do this in a single step for less fees 
-        */
+    /* Note: for now, if we need to reverse (Long=>Short / Short=>Long) 
+    * we use 2 steps (close, new_pos) but 
+    * in future we can do this in a single step for less fees 
+    */
 
     if approx_funding < 0 { // funding goes to longs 
         
+        // if we're short close it
         if vault_position == Position::Short {
-            // close long 
             msg!("closing short...");
             ctx.accounts.close_position(
                 signers, 
@@ -94,20 +84,11 @@ pub fn update_position(
             let user = &mut ctx.accounts.user; 
             user.reload()?; // update underlying account 
         }
-        
-        let collateral_amount = ctx.accounts.user.collateral;
-        let liabilites_amount = ctx.accounts.compute_total_liabilies();
-        msg!("(collateral, liabilities) amount: {}, {}", collateral_amount, liabilites_amount);
-        
-        let amount_to_trade = if liabilites_amount > collateral_amount { 
-            0 
-        } else {
-            collateral_amount - liabilites_amount
-        };
-        msg!("amount_to_trade: {}", amount_to_trade);
+
+        // compute how much we can long 
+        let amount_to_trade = ctx.accounts.get_position_state(true)[2];
 
         if amount_to_trade > 0 {
-            msg!("opening long...");
             ctx.accounts.open_position(
                 amount_to_trade, 
                 0, 
@@ -119,8 +100,8 @@ pub fn update_position(
 
     } else { // funding goes to shorts 
 
+        // if we're long close it
         if vault_position == Position::Long {
-            // close long 
             msg!("closing long...");
             ctx.accounts.close_position(
                 signers, 
@@ -130,18 +111,10 @@ pub fn update_position(
             user.reload()?; // update underlying account 
         }
 
-        let collateral_amount = ctx.accounts.user.collateral;
-        let liabilites_amount = ctx.accounts.compute_total_liabilies();
-        msg!("(collateral, liabilities) amount: {}, {}", collateral_amount, liabilites_amount);
-        let amount_to_trade = if liabilites_amount > collateral_amount { 
-            0 
-        } else {
-            collateral_amount - liabilites_amount
-        };
-        msg!("amount_to_trade: {}", amount_to_trade);
+        // compute how much we can go short 
+        let amount_to_trade = ctx.accounts.get_position_state(true)[2];
 
         if amount_to_trade > 0 {
-            msg!("opening short...");
             ctx.accounts.open_position(
                 amount_to_trade, 
                 0, 
@@ -180,6 +153,24 @@ pub struct UpdatePosition<'info> {
 
 impl<'info> UpdatePosition<'info> {
 
+    pub fn get_position_state(
+        &self,
+        log_results: bool,
+    ) -> [u128;3] {
+        let collateral_amount = self.user.collateral;
+        let liabilites_amount = self.compute_total_liabilities();
+
+        let amount_to_trade = if liabilites_amount > collateral_amount { 0 } 
+        else { collateral_amount - liabilites_amount }; 
+
+        if log_results {
+            msg!("(collateral, liabilities, to_trade) amount: {}, {}, {}", 
+                collateral_amount, liabilites_amount, amount_to_trade);
+        }
+
+        [collateral_amount, liabilites_amount, amount_to_trade]  
+    }
+
     pub fn get_current_position(
         &self, 
         market_index: u64,
@@ -203,9 +194,10 @@ impl<'info> UpdatePosition<'info> {
         }
     }
 
-    pub fn compute_total_liabilies(
+    pub fn compute_total_liabilities(
         &self
     ) -> u128 {
+        // yanked from the protocol-v1 src code 
         let vault_positions = &self.user_positions.load().unwrap();
         let markets = &self.markets.load().unwrap();
         
@@ -267,6 +259,12 @@ impl<'info> UpdatePosition<'info> {
         signers: &[&[&[u8]]],
         market_index: u64,
     ) -> ProgramResult {
+        let position_str = match position_direction {
+            ClearingHousePositionDirection::Long => "Long",
+            ClearingHousePositionDirection::Short => "Short",
+        };
+        msg!("opening a {}...", position_str);
+
         let cpi_program = self.clearing_house_program.to_account_info();
         let cpi_accounts = ClearingHouseOpenPosition {
             state: self.state.to_account_info(),
