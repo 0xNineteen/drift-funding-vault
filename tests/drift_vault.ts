@@ -534,9 +534,6 @@ describe('drift_vault', () => {
     const market = clearingHouse.getMarket(marketIndex); 
     const solUsd = market.amm.oracle;
     
-    // reset bc errors otherwise?? 
-    // await clearingHouse.updateAmmOracleTwap(marketIndex);
-
     // set funding for longs 
     await update_twaps(1.03, 1.0); 
 
