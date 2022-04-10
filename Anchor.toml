@@ -1,0 +1,17 @@
+[programs.localnet]
+drift_vault = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+
+# deploy clearing house program at start of test 
+[[test.genesis]]
+address = "AsW7LnXB9UA1uec9wi9MctYTgTz7YH9snhxd16GsFaGX"
+program = "./deps/protocol-v1/target/deploy/clearing_house.so"
+
+[registry]
+url = "https://anchor.projectserum.com"
+
+[provider]
+cluster = "localnet"
+wallet = "/Users/your_mom/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/drift_vault.ts"
