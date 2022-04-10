@@ -4,8 +4,9 @@ export const clearingHousePublicKey = new PublicKey(
     'AsW7LnXB9UA1uec9wi9MctYTgTz7YH9snhxd16GsFaGX'
 );
 export const pythPublicKey = new PublicKey(
-    '6bgJrRngVsFzCFkjd5PkVKMtb1C3JXgYnEFLhkJPtnEp'
+    'J64ZZLHe9NZ5MFPLprEBwbCpWjsEWPDPC5Sd9ctmKiL5'
 );
+
 export const error_codes = [
     "Clearing house not collateral account owner",
     "Clearing house not insurance account owner",

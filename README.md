@@ -27,18 +27,7 @@ other files are copy-pasta'd from the `cpi-examples` repo (see References).
 
 - change `[provider]` `wallet` path in `Anchor.toml`
 - set correct anchor version: `avm use 0.22.0`
-- build the clearing house, sdk, mock-pyth program, and vault program 
-```
-git submodule update --init --recursive
-cd deps/protocol-v1
-anchor build
-cd sdk
-yarn
-yarn build
-cd ../../..
-yarn
-anchor test --skip-lint 
-```
+- `bash setup.sh`: build the clearing house, sdk, mock-pyth program, and vault program 
 
 ## Notes
 

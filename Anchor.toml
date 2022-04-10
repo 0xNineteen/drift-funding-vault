@@ -1,5 +1,5 @@
 [programs.localnet]
-drift_vault = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+drift_vault = "FKKbXdAxoX6RK6h2ESspJEgxfN83JHw48CYfh1if142Z"
 
 # deploy clearing house program at start of test 
 [[test.genesis]]
