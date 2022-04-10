@@ -26,7 +26,7 @@ other files are copy-pasta'd from the `cpi-examples` repo (see References).
 ## Setup 
 
 - change `[provider]` `wallet` path in `Anchor.toml`
-- set correct anchor version: `avm use 0.22.0`
+- install anchor version manager (`avm`) with versions `0.22.0` and `0.19.0` installed 
 - `bash setup.sh`: build the clearing house, sdk, mock-pyth program, and vault program 
 
 ## Notes
