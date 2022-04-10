@@ -159,15 +159,15 @@ describe('drift_vault', () => {
           payer: provider.wallet.publicKey, 
 
           authority: authority, 
-          clearingHouseState: clearingHouseStatePk,
-          clearingHouseUser: user_account,
-          clearingHouseUserPositions: user_positions,
+          state: clearingHouseStatePk,
+          user: user_account,
+          userPositions: user_positions,
 
           vaultMint: vault_mint, 
           vaultState: vault_state, 
 
           vaultCollateral: vault_collateral,
-          collateralMint: usdcMint.publicKey, 
+          collateralMint: usdcMint.publicKey,  
           
           clearingHouseProgram: CH_program.programId,
           systemProgram: web3.SystemProgram.programId,
@@ -222,14 +222,14 @@ describe('drift_vault', () => {
           vaultState: vault_state, 
           
           authority: authority, 
-          clearingHouseUserPositions: user_positions,
-          clearingHouseUser: user_account,
+          userPositions: user_positions,
+          user: user_account,
           
-          clearingHouseState: clearingHouseStatePk,
-          clearingHouseCollateralVault: clearingHouseState.collateralVault,
-          clearingHouseMarkets: clearingHouseState.markets,
-          clearingHouseFundingPaymentHistory: clearingHouseState.fundingPaymentHistory,
-          clearingHouseDepositHistory: clearingHouseState.depositHistory,
+          state: clearingHouseStatePk,
+          collateralVault: clearingHouseState.collateralVault,
+          markets: clearingHouseState.markets,
+          fundingPaymentHistory: clearingHouseState.fundingPaymentHistory,
+          depositHistory: clearingHouseState.depositHistory,
 
           clearingHouseProgram: CH_program.programId,
           tokenProgram: token.TOKEN_PROGRAM_ID,
@@ -491,14 +491,14 @@ describe('drift_vault', () => {
           vaultState: vault_state, 
           
           authority: authority, 
-          clearingHouseUserPositions: user_positions,
-          clearingHouseUser: user_account,
+          userPositions: user_positions,
+          user: user_account,
           
-          clearingHouseState: clearingHouseStatePk,
-          clearingHouseCollateralVault: clearingHouseState.collateralVault,
-          clearingHouseMarkets: clearingHouseState.markets,
-          clearingHouseFundingPaymentHistory: clearingHouseState.fundingPaymentHistory,
-          clearingHouseDepositHistory: clearingHouseState.depositHistory,
+          state: clearingHouseStatePk,
+          collateralVault: clearingHouseState.collateralVault,
+          markets: clearingHouseState.markets,
+          fundingPaymentHistory: clearingHouseState.fundingPaymentHistory,
+          depositHistory: clearingHouseState.depositHistory,
 
           clearingHouseProgram: CH_program.programId,
           tokenProgram: token.TOKEN_PROGRAM_ID,

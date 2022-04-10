@@ -67,17 +67,17 @@ pub fn deposit(
     let cpi_program = ctx.accounts.clearing_house_program.to_account_info();
     let cpi_accounts = ClearingHouseDepositCollateral {
         // user stuff 
-        user: ctx.accounts.clearing_house_user.to_account_info(), 
+        user: ctx.accounts.user.to_account_info(), 
         user_collateral_account: ctx.accounts.vault_collateral_ata.to_account_info(), // [!]
-        user_positions: ctx.accounts.clearing_house_user_positions.to_account_info(),
+        user_positions: ctx.accounts.user_positions.to_account_info(),
         authority: ctx.accounts.authority.clone(), 
 
         // drift stuff 
-        state: ctx.accounts.clearing_house_state.to_account_info(),
-        markets: ctx.accounts.clearing_house_markets.to_account_info(), 
-        collateral_vault: ctx.accounts.clearing_house_collateral_vault.to_account_info(), 
-        deposit_history: ctx.accounts.clearing_house_deposit_history.to_account_info(),
-        funding_payment_history: ctx.accounts.clearing_house_funding_payment_history.to_account_info(), 
+        state: ctx.accounts.state.to_account_info(),
+        markets: ctx.accounts.markets.to_account_info(), 
+        collateral_vault: ctx.accounts.collateral_vault.to_account_info(), 
+        deposit_history: ctx.accounts.deposit_history.to_account_info(),
+        funding_payment_history: ctx.accounts.funding_payment_history.to_account_info(), 
         
         // other
         token_program: ctx.accounts.token_program.to_account_info(),
@@ -100,38 +100,51 @@ pub struct Deposit<'info> {
 
     // ATAs 
         // vault 
-    #[account(mut, constraint = &vault_collateral_ata.mint.eq(&clearing_house_state.collateral_mint))]
+    #[account(
+        mut, 
+        seeds = [b"vault_collateral".as_ref()],
+        bump,
+        constraint = &vault_collateral_ata.mint.eq(&state.collateral_mint)
+    )]
     pub vault_collateral_ata: Box<Account<'info, TokenAccount>>,  // transfer: this => assoc. drift collateral account
         // user
-    #[account(mut, constraint = &user_collateral_ata.mint.eq(&clearing_house_state.collateral_mint))]
+    #[account(
+        mut, 
+        has_one = owner, 
+        constraint = &user_collateral_ata.mint.eq(&state.collateral_mint)
+    )]
     pub user_collateral_ata: Box<Account<'info, TokenAccount>>, // transfer: this => vault collateral ata
-    #[account(mut, has_one = owner, constraint = &user_vault_ata.mint.eq(&vault_mint.key()))]
+    #[account(
+        mut, 
+        has_one = owner, 
+        constraint = &user_vault_ata.mint.eq(&vault_mint.key())
+    )]
     pub user_vault_ata: Box<Account<'info, TokenAccount>>,  // mint to this 
     
     // vault stuff 
-    #[account(mut, seeds = [b"vault_mint".as_ref()], bump)] 
-    pub vault_mint: Account<'info, Mint>,
     #[account(mut, seeds = [b"vault_state".as_ref()], bump)] 
     pub vault_state: Account<'info, VaultState>,
+    #[account(mut, seeds = [b"vault_mint".as_ref()], bump)] 
+    pub vault_mint: Account<'info, Mint>,
     
     // drift vault stuff
     #[account(mut, seeds = [b"authority".as_ref()], bump)]
     pub authority: AccountInfo<'info>,
     #[account(mut, seeds = [b"user_positions".as_ref()], bump)]
-    pub clearing_house_user_positions: AccountInfo<'info>,
+    pub user_positions: AccountInfo<'info>,
     #[account(mut)]
-    pub clearing_house_user: AccountInfo<'info>,
+    pub user: AccountInfo<'info>,
 
     // drift clearing house stuff 
     #[account(mut)]
-    pub clearing_house_state: Box<Account<'info, State>>,
+    pub state: Box<Account<'info, State>>,
     #[account(mut)]
-    pub clearing_house_collateral_vault: Box<Account<'info, TokenAccount>>,
-    pub clearing_house_markets: AccountInfo<'info>,
+    pub collateral_vault: Box<Account<'info, TokenAccount>>,
+    pub markets: AccountInfo<'info>,
     #[account(mut)]
-    pub clearing_house_funding_payment_history: AccountInfo<'info>,
+    pub funding_payment_history: AccountInfo<'info>,
     #[account(mut)]
-    pub clearing_house_deposit_history: AccountInfo<'info>,
+    pub deposit_history: AccountInfo<'info>,
 
     // other
     pub clearing_house_program: Program<'info, ClearingHouse>,

@@ -39,9 +39,9 @@ pub fn initialize_vault(
     // 3. create drift account 
     let cpi_program = ctx.accounts.clearing_house_program.to_account_info();
     let cpi_accounts = InitializeUserWithExplicitPayer {
-        state: ctx.accounts.clearing_house_state.to_account_info(), 
-        user: ctx.accounts.clearing_house_user.to_account_info(), 
-        user_positions: ctx.accounts.clearing_house_user_positions.clone(), 
+        state: ctx.accounts.state.to_account_info(), 
+        user: ctx.accounts.user.to_account_info(), 
+        user_positions: ctx.accounts.user_positions.clone(), 
         authority: ctx.accounts.authority.clone(), 
 
         payer: ctx.accounts.payer.clone(), 
@@ -70,15 +70,16 @@ pub struct InitializeVault<'info> {
     #[account(mut, signer)]
     pub payer: AccountInfo<'info>,
 
-    // drift account 
+    // drift account (user / user_positions will be initialized)
     #[account(mut, seeds = [b"authority".as_ref()], bump)]
     pub authority: AccountInfo<'info>,
-    pub clearing_house_state: Box<Account<'info, State>>,
     #[account(mut)]
-    pub clearing_house_user: AccountInfo<'info>,
+    pub user: AccountInfo<'info>,
     #[account(mut, seeds = [b"user_positions".as_ref()], bump)]
-    pub clearing_house_user_positions: AccountInfo<'info>,
-
+    pub user_positions: AccountInfo<'info>,
+    // drift clearing house 
+    pub state: Box<Account<'info, State>>,
+    
     // pool mint for LPs 
     #[account(
         init, 
@@ -108,7 +109,7 @@ pub struct InitializeVault<'info> {
     )]
     pub vault_collateral: Box<Account<'info, TokenAccount>>,
     #[account(
-        constraint = &clearing_house_state.collateral_mint.eq(&collateral_mint.key())
+        constraint = &state.collateral_mint.eq(&collateral_mint.key())
     )]
     pub collateral_mint: Box<Account<'info, Mint>>,
 

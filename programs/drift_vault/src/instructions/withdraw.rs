@@ -153,12 +153,25 @@ pub struct Withdraw<'info> {
 
     // atas 
         // vault 
-    #[account(mut, constraint = &vault_collateral_ata.mint.eq(&update_position.state.collateral_mint))]
+    #[account(
+        mut, 
+        seeds = [b"vault_collateral".as_ref()],
+        bump,
+        constraint = &vault_collateral_ata.mint.eq(&update_position.state.collateral_mint)
+    )]
     pub vault_collateral_ata: Box<Account<'info, TokenAccount>>,  
         // user
-    #[account(mut, constraint = &user_collateral_ata.mint.eq(&update_position.state.collateral_mint))]
+    #[account(
+        mut, 
+        has_one = owner, 
+        constraint = &user_collateral_ata.mint.eq(&update_position.state.collateral_mint)
+    )]
     pub user_collateral_ata: Box<Account<'info, TokenAccount>>, 
-    #[account(mut, has_one = owner, constraint = &user_vault_ata.mint.eq(&vault_mint.key()))]
+    #[account(
+        mut, 
+        has_one = owner, 
+        constraint = &user_vault_ata.mint.eq(&vault_mint.key())
+    )]
     pub user_vault_ata: Box<Account<'info, TokenAccount>>,  
 
     // vault stuff 
