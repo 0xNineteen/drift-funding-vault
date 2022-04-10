@@ -1,3 +1,4 @@
+use core::panic;
 use anchor_lang::prelude::*;
 
 use clearing_house::context::{
@@ -48,17 +49,23 @@ pub fn update_position(
         msg!("funding = 0, not doing anything...");
         return Ok(());
     }
-    
+
+    let funding_direction = if approx_funding < 0 { // funding goes to longs 
+        Position::Long
+    } else { 
+        Position::Short
+    };
+
+    // get current position 
+    let vault_position = ctx.accounts.get_current_position(market_index);
+    msg!("current position: {:?}", vault_position);
+
     // print the state of the current position of vault before anything
     ctx.accounts.get_position_state(true);
         
     // 2. do:
     //  if funding = good for longs => *open_long()
     //  if funding = good for shorts => *open_short()
-
-    // get current position 
-    let vault_position = ctx.accounts.get_current_position(market_index);
-    msg!("current position: {:?}", vault_position);
     
     // get vault signature 
     let authority_seeds = [
@@ -72,57 +79,34 @@ pub fn update_position(
     * in future we can do this in a single step for less fees 
     */
 
-    if approx_funding < 0 { // funding goes to longs 
-        
-        // if we're short close it
-        if vault_position == Position::Short {
-            msg!("closing short...");
-            ctx.accounts.close_position(
-                signers, 
-                market_index
-            )?;
-            let user = &mut ctx.accounts.user; 
-            user.reload()?; // update underlying account 
-        }
+    if vault_position != Position::None && 
+        vault_position != funding_direction {
+        msg!("closing {:?}...", vault_position);
+        ctx.accounts.close_position(
+            signers, 
+            market_index
+        )?;
+        let user = &mut ctx.accounts.user; 
+        user.reload()?; // update underlying account 
+    }
 
-        // compute how much we can long 
-        let amount_to_trade = ctx.accounts.get_position_state(true)[2];
+    // compute how much we can trade for 1:1 
+    let amount_to_trade = ctx.accounts.get_position_state(true)[2];
 
-        if amount_to_trade > 0 {
-            ctx.accounts.open_position(
-                amount_to_trade, 
-                0, 
-                ClearingHousePositionDirection::Long, 
-                signers, 
-                market_index
-            )?;
-        }
+    if amount_to_trade > 0 {
+        let ch_funding_direction = match funding_direction {
+            Position::Long => ClearingHousePositionDirection::Long, 
+            Position::Short => ClearingHousePositionDirection::Short, 
+            _ => panic!("shouldn't occur")
+        };
 
-    } else { // funding goes to shorts 
-
-        // if we're long close it
-        if vault_position == Position::Long {
-            msg!("closing long...");
-            ctx.accounts.close_position(
-                signers, 
-                market_index
-            )?;
-            let user = &mut ctx.accounts.user; 
-            user.reload()?; // update underlying account 
-        }
-
-        // compute how much we can go short 
-        let amount_to_trade = ctx.accounts.get_position_state(true)[2];
-
-        if amount_to_trade > 0 {
-            ctx.accounts.open_position(
-                amount_to_trade, 
-                0, 
-                ClearingHousePositionDirection::Short, 
-                signers, 
-                market_index
-            )?;
-        }
+        ctx.accounts.open_position(
+            amount_to_trade, 
+            0, 
+            ch_funding_direction, 
+            signers, 
+            market_index
+        )?;
     }
 
     Ok(())
