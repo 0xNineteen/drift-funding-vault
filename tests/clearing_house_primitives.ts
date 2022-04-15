@@ -28,13 +28,7 @@ import {
 import {getFeedData, setFeedPrice} from '../ts/mockPythUtils';
 
 import * as fs from 'fs';
-
-const clearingHousePublicKey = new PublicKey(
-    'AsW7LnXB9UA1uec9wi9MctYTgTz7YH9snhxd16GsFaGX',
-);
-const pythPublicKey = new PublicKey(
-    '6bgJrRngVsFzCFkjd5PkVKMtb1C3JXgYnEFLhkJPtnEp',
-);
+import {clearingHousePublicKey, pythPublicKey} from './utils';
 
 describe('drift_vault', () => {
   const provider = anchor.Provider.env();
