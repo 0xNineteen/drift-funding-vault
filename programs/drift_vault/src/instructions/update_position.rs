@@ -94,16 +94,10 @@ pub fn update_position(
     let amount_to_trade = ctx.accounts.get_position_state(true)[2];
 
     if amount_to_trade > 0 {
-        let ch_funding_direction = match funding_direction {
-            Position::Long => ClearingHousePositionDirection::Long, 
-            Position::Short => ClearingHousePositionDirection::Short, 
-            _ => panic!("shouldn't occur")
-        };
-
         ctx.accounts.open_position(
             amount_to_trade, 
             0, 
-            ch_funding_direction, 
+            funding_direction, 
             signers, 
             market_index
         )?;
@@ -141,11 +135,15 @@ impl<'info> UpdatePosition<'info> {
         &self,
         log_results: bool,
     ) -> [u128;3] {
-        let collateral_amount = self.user.collateral;
-        let liabilites_amount = self.compute_total_liabilities();
 
-        let amount_to_trade = if liabilites_amount > collateral_amount { 0 } 
-        else { collateral_amount - liabilites_amount }; 
+        let [collateral_amount, liabilites_amount] = 
+            self.compute_collateral_liabilities();
+
+        // match supremicy 
+        let amount_to_trade = match collateral_amount > liabilites_amount { 
+            true => collateral_amount - liabilites_amount,
+            false => 0, 
+        };
 
         if log_results {
             msg!("(collateral, liabilities, to_trade) amount: {}, {}, {}", 
@@ -178,9 +176,11 @@ impl<'info> UpdatePosition<'info> {
         }
     }
 
-    pub fn compute_total_liabilities(
+    pub fn compute_collateral_liabilities(
         &self
-    ) -> u128 {
+    ) -> [u128; 2] {
+        let mut collateral_amount = self.user.collateral;
+
         // yanked from the protocol-v1 src code 
         let vault_positions = &self.user_positions.load().unwrap();
         let markets = &self.markets.load().unwrap();
@@ -192,13 +192,17 @@ impl<'info> UpdatePosition<'info> {
             }
             let market = markets.get_market(market_position.market_index);
             let amm = &market.amm;
-            let (position_base_asset_value, _position_unrealized_pnl) =
+            let (position_base_asset_value, position_unrealized_pnl) =
                 calculate_base_asset_value_and_pnl(market_position, amm).unwrap();
             
             liabilites_amount += position_base_asset_value;
+            // profit pnl = additional collateral 
+            if position_unrealized_pnl > 0 {
+                collateral_amount += position_unrealized_pnl as u128; 
+            }
         }
 
-        liabilites_amount
+        [collateral_amount, liabilites_amount]
     }
 
     pub fn close_position(
@@ -239,15 +243,17 @@ impl<'info> UpdatePosition<'info> {
         &self,
         amount_in: u128,
         limit_price: u128, 
-        position_direction: ClearingHousePositionDirection, 
+        position_direction: Position, 
         signers: &[&[&[u8]]],
         market_index: u64,
     ) -> ProgramResult {
-        let position_str = match position_direction {
-            ClearingHousePositionDirection::Long => "Long",
-            ClearingHousePositionDirection::Short => "Short",
+        msg!("opening a {:?}...", position_direction);
+
+        let clearing_house_direction = match position_direction {
+            Position::Short => ClearingHousePositionDirection::Short,
+            Position::Long => ClearingHousePositionDirection::Long,
+            _ => panic!("shouldnt be called...")
         };
-        msg!("opening a {}...", position_str);
 
         let cpi_program = self.clearing_house_program.to_account_info();
         let cpi_accounts = ClearingHouseOpenPosition {
@@ -270,7 +276,7 @@ impl<'info> UpdatePosition<'info> {
 
         clearing_house::cpi::open_position(
             cpi_ctx, 
-            position_direction,
+            clearing_house_direction,
             amount_in, 
             market_index, 
             limit_price, 

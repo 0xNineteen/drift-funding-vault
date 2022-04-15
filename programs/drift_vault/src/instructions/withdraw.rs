@@ -8,7 +8,6 @@ use anchor_spl::{
     },
 };
 
-use clearing_house::controller::position::PositionDirection as ClearingHousePositionDirection;
 use clearing_house::cpi::accounts::{
     WithdrawCollateral as ClearingHouseWithdrawCollateral,
 };
@@ -58,14 +57,14 @@ pub fn withdraw(
     let signers = &[&authority_seeds[..]];
 
     if vault_position != Position::None {
-        msg!("position reducing...");
+        msg!("reducing position...");
         
         let reduce_direction = match vault_position {
-            Position::Long => ClearingHousePositionDirection::Short,
-            Position::Short => ClearingHousePositionDirection::Long,
+            Position::Long => Position::Short,
+            Position::Short => Position::Long,
             _ => panic!("shouldnt be called...")
         };
-    
+
         update_position_accounts.open_position(
             amount_to_reduce, 
             0, 
